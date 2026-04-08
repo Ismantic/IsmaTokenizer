@@ -81,11 +81,6 @@ tok.method                        # → 'bytepiece'
 | `sentencepiece` | SentencePieceCounter | SentencePieceTokenizer | Google SentencePiece BPE 实现 |
 | `bytepiece` | BytePieceCounter | BytePieceTokenizer | 科学空间 BytePiece 实现 |
 
-## 测试
-
-```bash
-./build/piece_tokenizer_test
-```
 
 ## License
 
