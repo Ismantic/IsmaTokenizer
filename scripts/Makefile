@@ -5,10 +5,10 @@ EN_INPUT := $(ROOT)/data/en_sentences.txt
 MODEL_DIR := $(CURDIR)/output
 
 VOCAB_SIZE := 80000
-CPU        := 8
+CPU        := 4
 NORMALIZE  := identity
 
-METHODS := naive piece sentencepiece bytepiece
+METHODS := bytepiece
 
 # 默认训练所有方法
 all: $(METHODS)
