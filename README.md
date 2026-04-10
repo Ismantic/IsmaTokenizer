@@ -74,7 +74,7 @@ tok.vocab_size()                  # → 8259
 tok.method                        # → 'bytepiece'
 ```
 
-## 训练方法
+## Tokenizer 方法
 
 | 方法 | 训练 | 推理 | 说明 |
 |------|------|------|------|
