@@ -119,20 +119,23 @@ TEST(UstrTest, SplitTextPendingSpaceGoesToPunctNotWordPrefix) {
     EXPECT_EQ(std::string("a"), std::string(r[1]));
 }
 
-TEST(UstrTest, SplitTextDigitsAreWordChars) {
-    // "hello123world" -> one run (digits are in word class).
+TEST(UstrTest, SplitTextDigitsSeparateFromLetters) {
+    // "hello123world" -> ["hello", "123", "world"]
     auto r = SplitText("hello123world", kSp);
-    ASSERT_EQ(static_cast<size_t>(1), r.size());
-    EXPECT_EQ(std::string("hello123world"), std::string(r[0]));
+    ASSERT_EQ(static_cast<size_t>(3), r.size());
+    EXPECT_EQ(std::string("hello"), std::string(r[0]));
+    EXPECT_EQ(std::string("123"), std::string(r[1]));
+    EXPECT_EQ(std::string("world"), std::string(r[2]));
 }
 
-TEST(UstrTest, SplitTextDigitRunWithLeadingSpace) {
-    // "year▁2024" -> ["year", "▁2024"]
+TEST(UstrTest, SplitTextDigitRunSpaceStandalone) {
+    // "year▁2024" -> ["year", "▁", "2024"] (space doesn't attach to digits)
     std::string input = std::string("year") + kSp + "2024";
     auto r = SplitText(input, kSp);
-    ASSERT_EQ(static_cast<size_t>(2), r.size());
+    ASSERT_EQ(static_cast<size_t>(3), r.size());
     EXPECT_EQ(std::string("year"), std::string(r[0]));
-    EXPECT_EQ(std::string(kSp) + "2024", std::string(r[1]));
+    EXPECT_EQ(std::string(kSp), std::string(r[1]));
+    EXPECT_EQ(std::string("2024"), std::string(r[2]));
 }
 
 TEST(UstrTest, SplitTextCJKWordRun) {
@@ -311,6 +314,77 @@ TEST(UstrTest, SplitTextCut1Chinese) {
     EXPECT_EQ(std::string("\xef\xbc\x8c"), std::string(r[2]));
     EXPECT_EQ(std::string("\xe4\xb8\x96\xe7\x95\x8c"), std::string(r[3]));
     EXPECT_EQ(std::string("\xe3\x80\x82"), std::string(r[4]));
+}
+
+// ----------- GPT-4 alignment tests -----------
+
+TEST(UstrTest, SplitTextPunctPrefixOnlyForLetters) {
+    // "$100" -> "$" "100" (punct does NOT prefix digit runs)
+    auto r = SplitText("$100", kSp);
+    ASSERT_EQ(static_cast<size_t>(2), r.size());
+    EXPECT_EQ(std::string("$"), std::string(r[0]));
+    EXPECT_EQ(std::string("100"), std::string(r[1]));
+}
+
+TEST(UstrTest, SplitTextPunctPrefixForLetters) {
+    // "$hello" -> "$hello" (punct prefixes letter run)
+    auto r = SplitText("$hello", kSp);
+    ASSERT_EQ(static_cast<size_t>(1), r.size());
+    EXPECT_EQ(std::string("$hello"), std::string(r[0]));
+}
+
+TEST(UstrTest, SplitTextSpacePunctDigit) {
+    // "▁$100" -> "▁$" "100" (space attaches to punct, digit separate)
+    std::string input = std::string(kSp) + "$100";
+    auto r = SplitText(input, kSp);
+    ASSERT_EQ(static_cast<size_t>(2), r.size());
+    EXPECT_EQ(std::string(kSp) + "$", std::string(r[0]));
+    EXPECT_EQ(std::string("100"), std::string(r[1]));
+}
+
+TEST(UstrTest, SplitTextDigitPercent) {
+    // "100%" -> "100" "%"
+    auto r = SplitText("100%", kSp);
+    ASSERT_EQ(static_cast<size_t>(2), r.size());
+    EXPECT_EQ(std::string("100"), std::string(r[0]));
+    EXPECT_EQ(std::string("%"), std::string(r[1]));
+}
+
+TEST(UstrTest, SplitTextSpace24h) {
+    // "▁24h" -> "▁" "24" "h"
+    std::string input = std::string(kSp) + "24h";
+    auto r = SplitText(input, kSp);
+    ASSERT_EQ(static_cast<size_t>(3), r.size());
+    EXPECT_EQ(std::string(kSp), std::string(r[0]));
+    EXPECT_EQ(std::string("24"), std::string(r[1]));
+    EXPECT_EQ(std::string("h"), std::string(r[2]));
+}
+
+TEST(UstrTest, SplitTextContractionLL) {
+    // "they'll" -> "they" "'ll"
+    auto r = SplitText("they'll", kSp);
+    ASSERT_EQ(static_cast<size_t>(2), r.size());
+    EXPECT_EQ(std::string("they"), std::string(r[0]));
+    EXPECT_EQ(std::string("'ll"), std::string(r[1]));
+}
+
+TEST(UstrTest, SplitTextHelloCommaWorld) {
+    // "hello,world" -> "hello" ",world" (punct prefixes letter run)
+    auto r = SplitText("hello,world", kSp);
+    ASSERT_EQ(static_cast<size_t>(2), r.size());
+    EXPECT_EQ(std::string("hello"), std::string(r[0]));
+    EXPECT_EQ(std::string(",world"), std::string(r[1]));
+}
+
+TEST(UstrTest, SplitTextHelloSpaceCommaWorld) {
+    // "hello▁,world" -> "hello" "▁," "world"
+    // (space attaches to punct, but punct+space can't prefix)
+    std::string input = std::string("hello") + kSp + ",world";
+    auto r = SplitText(input, kSp);
+    ASSERT_EQ(static_cast<size_t>(3), r.size());
+    EXPECT_EQ(std::string("hello"), std::string(r[0]));
+    EXPECT_EQ(std::string(kSp) + ",", std::string(r[1]));
+    EXPECT_EQ(std::string("world"), std::string(r[2]));
 }
 
 } // namespace ustr

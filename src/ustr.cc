@@ -310,20 +310,22 @@ std::vector<std::string_view> SplitText(std::string_view text,
         return std::min<int>(ustr::OneUTF8Size(p), end - p);
     };
 
-    enum Kind { kSpace, kWord, kPunct };
+    // Classification aligned with GPT-4 regex, except:
+    // - Digits have no length limit (GPT-4 limits to 1-3)
+    // - Han chars form separate runs (GPT-4 groups all \p{L} together)
+    // - Space does not attach to Han or Digit runs
+    enum Kind { kSpace, kLetter, kDigit, kHan, kPunct };
     auto classify = [&](const char* p, int len) -> Kind {
         std::string_view c(p, len);
         if (c == space) return kSpace;
         size_t mblen = 0;
         const uint32_t cp = DecodeUTF8(p, end, &mblen);
-        if (IsWordChar(cp)) return kWord;
+        if (IsHan(cp)) return kHan;
+        if (IsDigitCodepoint(cp)) return kDigit;
+        if (IsWordChar(cp)) return kLetter;
         return kPunct;
     };
 
-    // pending_space, when non-null, points at the most recent space char
-    // that has not yet been committed to a run. Invariant: it is always
-    // immediately before `begin`, so [pending_space, run_end) is a
-    // contiguous slice we can emit as a single string_view.
     const char* pending_space = nullptr;
     int pending_space_len = 0;
 
@@ -332,98 +334,86 @@ std::vector<std::string_view> SplitText(std::string_view text,
         const Kind kind = classify(begin, clen);
 
         if (kind == kSpace) {
-            if (pending_space != nullptr) {
-                // Two spaces in a row: flush the previous one as a
-                // standalone token.
+            if (pending_space != nullptr)
                 result.emplace_back(pending_space, pending_space_len);
-            }
             pending_space = begin;
             pending_space_len = clen;
             begin += clen;
             continue;
         }
 
-        if (kind == kWord) {
-            // Determine Han-ness of first word char for boundary splitting.
-            size_t mb = 0;
-            const uint32_t first_cp = DecodeUTF8(begin, end, &mb);
-            const bool first_han = IsHan(first_cp);
-
-            const char* run_start;
-            if (pending_space != nullptr) {
-                if (first_han) {
-                    // Han words never carry a space prefix — emit standalone.
-                    result.emplace_back(pending_space, pending_space_len);
-                    run_start = begin;
-                } else {
-                    run_start = pending_space;
-                }
-                pending_space = nullptr;
-            } else {
-                run_start = begin;
-            }
-
-            // Consume word chars with the same Han-ness.
+        if (kind == kLetter) {
+            // Space attaches as prefix to letter runs.
+            const char* run_start = pending_space ? pending_space : begin;
+            pending_space = nullptr;
             const char* run_end = begin;
-            while (run_end < end) {
-                const int wlen = char_len(run_end);
-                if (classify(run_end, wlen) != kWord) break;
-                size_t mb2 = 0;
-                const uint32_t cp = DecodeUTF8(run_end, end, &mb2);
-                if (IsHan(cp) != first_han) break;
-                run_end += wlen;
+            while (run_end < end && classify(run_end, char_len(run_end)) == kLetter)
+                run_end += char_len(run_end);
+            result.emplace_back(run_start, run_end - run_start);
+            begin = run_end;
+            continue;
+        }
+
+        if (kind == kDigit) {
+            // Space does NOT attach to digit runs.
+            if (pending_space) {
+                result.emplace_back(pending_space, pending_space_len);
+                pending_space = nullptr;
             }
+            const char* run_start = begin;
+            const char* run_end = begin;
+            while (run_end < end && classify(run_end, char_len(run_end)) == kDigit)
+                run_end += char_len(run_end);
+            result.emplace_back(run_start, run_end - run_start);
+            begin = run_end;
+            continue;
+        }
+
+        if (kind == kHan) {
+            // Space does NOT attach to Han runs.
+            if (pending_space) {
+                result.emplace_back(pending_space, pending_space_len);
+                pending_space = nullptr;
+            }
+            const char* run_start = begin;
+            const char* run_end = begin;
+            while (run_end < end && classify(run_end, char_len(run_end)) == kHan)
+                run_end += char_len(run_end);
             result.emplace_back(run_start, run_end - run_start);
             begin = run_end;
             continue;
         }
 
         // kind == kPunct
-        // Special case: when there's no pending space and the very next
-        // character is a non-Han word char, the punct is absorbed as a
-        // 1-char prefix of the upcoming word run (rustbpe alt 2 behavior).
-        // Han word runs never absorb a preceding punct.
+        // Punct-as-prefix: one punct char absorbs into a following letter run
+        // (matches GPT-4 pattern 2: [^\r\n\p{L}\p{N}]?\p{L}+).
+        // Only when no pending space, and only for letter runs (not digit/Han).
         if (pending_space == nullptr && begin + clen < end) {
             const int nlen = char_len(begin + clen);
-            if (classify(begin + clen, nlen) == kWord) {
-                size_t mb = 0;
-                const uint32_t wcp = DecodeUTF8(begin + clen, end, &mb);
-                if (!IsHan(wcp)) {
-                    const char* run_start = begin;
-                    const char* run_end = begin + clen;
-                    while (run_end < end) {
-                        const int wlen = char_len(run_end);
-                        if (classify(run_end, wlen) != kWord) break;
-                        size_t mb2 = 0;
-                        const uint32_t cp = DecodeUTF8(run_end, end, &mb2);
-                        if (IsHan(cp)) break;
-                        run_end += wlen;
-                    }
-                    result.emplace_back(run_start, run_end - run_start);
-                    begin = run_end;
-                    continue;
-                }
+            if (classify(begin + clen, nlen) == kLetter) {
+                const char* run_start = begin;
+                const char* run_end = begin + clen;
+                while (run_end < end && classify(run_end, char_len(run_end)) == kLetter)
+                    run_end += char_len(run_end);
+                result.emplace_back(run_start, run_end - run_start);
+                begin = run_end;
+                continue;
             }
         }
 
-        // Regular punct run, optionally prefixed with pending space.
-        const char* run_start =
-            pending_space != nullptr ? pending_space : begin;
+        // Regular punct run. Space attaches as prefix to punct runs
+        // (matches GPT-4 pattern 4: ` ?[^\s\p{L}\p{N}]++`).
+        const char* run_start = pending_space ? pending_space : begin;
         pending_space = nullptr;
         const char* run_end = begin;
-        while (run_end < end) {
-            const int plen = char_len(run_end);
-            if (classify(run_end, plen) != kPunct) break;
-            run_end += plen;
-        }
+        while (run_end < end && classify(run_end, char_len(run_end)) == kPunct)
+            run_end += char_len(run_end);
         result.emplace_back(run_start, run_end - run_start);
         begin = run_end;
     }
 
-    // Trailing space (normalizer usually strips this, but be safe).
-    if (pending_space != nullptr) {
+    if (pending_space != nullptr)
         result.emplace_back(pending_space, pending_space_len);
-    }
 
     return result;
 }

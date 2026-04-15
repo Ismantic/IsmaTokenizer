@@ -113,6 +113,12 @@ bool IsWordChar(uint32_t cp);
 // to detect runs of Chinese characters.
 bool IsHan(uint32_t cp);
 
+inline bool IsDigitCodepoint(uint32_t cp) {
+    if (cp >= '0' && cp <= '9') return true;
+    if (cp >= 0xFF10 && cp <= 0xFF19) return true;  // fullwidth digits
+    return false;
+}
+
 bool IsPunctuationToken(std::string_view text);
 
 // A "separator" is any codepoint that breaks a word run: punctuation or

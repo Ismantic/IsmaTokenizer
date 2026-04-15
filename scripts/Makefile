@@ -6,14 +6,14 @@ EN_INPUT := $(ROOT)/data/en_sentences.txt
 MODEL_DIR := $(CURDIR)/output
 
 NORMALIZE       := no
-VOCAB_SIZE      := 10000
+VOCAB_SIZE      := 200000
 CPU             := 8
 MAX_SENTENCES   := 0
 MIN_COUNT       := 0
-CUT             := 1
+CUT             := 0
 MAX_PIECE_SIZE  := 0
 #CN_DICT         := dict.txt
-CN_DICT         :=
+CN_DICT         := no
 
 # When CN_DICT is set (e.g. `make piece CN_DICT=/path/to/dict.txt`),
 # the `piece` method enters cn mode and pre-cuts Han runs with a
